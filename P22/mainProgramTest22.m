@@ -1,0 +1,160 @@
+function [out] = mainProgramTest22()
+clear all;close all;
+img = Get_file();
+%img = imrotate(img,90);
+try
+I = rgb2gray(img);    
+catch ex
+    I = im2bw(img);
+end
+%% get X Y
+ff = edge(I,'canny');
+[y, x] = find(ff == 1);
+edgesnap = [x(:),y(:)];
+set(0,'RecursionLimit',3000);
+figure,imshow(img);hold on;
+a = sortedPoint(edgesnap);
+%[a,~] = dpsimplify(a,1);
+edgesnap = a;
+%% =============== First draw =============== %%
+k = 1;
+
+while k == 1
+[~, maskX1,maskY1] = roipoly;
+disp(['if proceed please click but if not please press a button']);
+k = waitforbuttonpress;
+end
+xy1 = [];
+for count = 1:size(maskX1,1)-2
+[x, y]=bresenham(maskX1(count),maskY1(count),maskX1(count+1),maskY1(count+1));
+xy1 = [xy1;x,y];
+end
+        % Snap line
+matching = knnclassify(xy1,edgesnap,1:1:size(edgesnap,1));
+newSnap1 = edgesnap(matching,1:2);
+hold on,plot(edgesnap(matching,1),edgesnap(matching,2),'b*');
+        % Rotate line
+newSnap1 = rotateLine2(newSnap1); % rotate for other half
+hold on,plot(newSnap1(:,1),newSnap1(:,2),'g-');
+xy1Sh(:,1) = newSnap1(:,1)- min(newSnap1(:,1)) - ceil((max(newSnap1(:,1))-min(newSnap1(:,1)))/2);
+xy1Sh(:,2) = newSnap1(:,2)- min(newSnap1(:,2)) - ceil((max(newSnap1(:,2))-min(newSnap1(:,2)))/2);
+
+%% Second draw
+k = 1;
+while k == 1
+[~, maskX2,maskY2] = roipoly;
+disp(['if proceed please click but if not please press a button']);
+k = waitforbuttonpress;
+end
+xy1 = [];
+for count = 1:size(maskX2,1)-2
+[x, y]=bresenham(maskX2(count),maskY2(count),maskX2(count+1),maskY2(count+1));
+xy1 = [xy1;x,y];
+end
+        % Snap line
+        matching = knnclassify(xy1,edgesnap,1:1:size(edgesnap,1));
+        newSnap2 = edgesnap(matching,1:2);
+        hold on,plot(edgesnap(matching,1),edgesnap(matching,2),'b*');
+        % Rotate line
+        newSnap2 = rotateLine2(newSnap2); % rotate for other half
+        hold on,plot(newSnap2(:,1),newSnap2(:,2),'g-');
+        xy2Sh(:,1) = newSnap2(:,1)- min(newSnap2(:,1)) - ceil((max(newSnap2(:,1))-min(newSnap2(:,1)))/2);
+        xy2Sh(:,2) = newSnap2(:,2)- min(newSnap2(:,2)) - ceil((max(newSnap2(:,2))-min(newSnap2(:,2)))/2);
+        
+%% interpolation process
+
+%clear maskX1;clear maskX2;clear maskY1;clear maskY2;
+% simple width of shape
+%tempH = ceil((size(newSnap2,1)-1)/2); 
+count = 1;
+for i = newSnap1(1,2):1:newSnap2(1,2)
+        tempFind = find(ff(i,:)); % search edge boundary
+        width(count,1) = (tempFind(end) - tempFind(1));
+%         try
+%             if (width(count,1) >= (0.9 * width(count-1,1))) && (width(count,1) <= (1.1 * width(count-1,1)))
+%             else
+%                 width(count,1) = width(count-1,1);
+%             end
+%         catch ex
+%             disp(['start']);
+%         end
+                
+        count=count+1;
+end
+%clear count
+% simple height of shape
+divide = newSnap2(1,2)-newSnap1(1,2);% user
+
+% tempH = newSnap1();
+%clear tempH;
+
+[libDist, shape,libDist2,shape1] = interpProfile5(xy1Sh,xy2Sh,divide);
+%[shape] = interpProfile(xy1,xy2,divide);
+hold on;
+%% sweep process
+%  template = shape(end).XY;%last shape
+%  height = ceil(max(newSnap2(:,2)) - mean(newSnap1(:,2)));
+%  width = ceil(max(newSnap1(:,1))- min(newSnap1(:,1)));
+%  [~] = B3swLoft(template,width,height,divide);
+% axis tight
+% Library pickup
+model = pickupLib(shape,libDist,width);
+model2 = pickupLib(shape1,libDist2,width);
+
+% modelling
+ model11(model);
+model11(model2);
+ % for d = 1:size(model,2)%% glitch
+%     tempA = smooth(model(d).XY);
+%     tempB = reshape(tempA,round(size(tempA,1)/2),2);
+%     smoothTest(d).XY = tempB;
+%     smoothTest(d).XY(1,1:2) = smoothTest(d).XY(end,1:2);
+% end
+%model11(smoothTest);
+out.shape = shape;
+out.model = model;
+%out.smooth = smoothTest;
+out.width = width;
+%save dataAlltoothpasteCir.mat;
+end
+
+function model = pickupLib(shape,libDist,width)
+% Library pickup
+model(1).XY = shape(end).XY;
+for i = 2:1:size(width,1)
+    idx = findCloset(libDist,width(i));
+    if (width(i) >= (0.9 * libDist(idx))) && (width(i) <= (1.1 * libDist(idx)))
+        model(i).XY = shape(idx).XY;
+    else
+        model(i).XY = model(i-1).XY;
+    end
+end
+model(size(width,1)+1).XY = shape(1).XY;
+end
+
+function [idx]=findCloset(lib,val)
+tmp = abs(lib-val);
+[~, idx] = min(tmp); %index of closest value
+%closest = lib(idx); %closest value
+end
+
+function []= model11(model)
+reconX = [];reconY = [];reconZ = [];
+shape = model;
+for j = 1:size(shape,2)
+    recon = shape(j).XY;
+    reconX = [reconX ;recon(:,1)'];
+    reconY = [reconY ;recon(:,2)'];
+    reconZ = [reconZ ;(ones(1,size(reconX,2))*j)];
+end
+%creating model
+figure,hSurface = surf(reconX,reconY,reconZ,'EdgeColor','k','MeshStyle','column','FaceColor','interp','FaceLighting','gouraud');
+set(hSurface,'FaceColor','c');
+hold on;
+plot3((reconX(end,1:end))',(reconY(end,1:end))',(reconZ(end,1:end))','k-');
+fill3((reconX(end,1:end))',(reconY(end,1:end))',(reconZ(end,1:end))','c')
+plot3((reconX(1,1:end))',(reconY(1,1:end))',(reconZ(1,1:end))','k-');
+fill3((reconX(1,1:end))',(reconY(1,1:end))',(reconZ(1,1:end))','c');
+axis tight;
+xlabel('Xaxis');ylabel('Yaxis');zlabel('height');
+end
